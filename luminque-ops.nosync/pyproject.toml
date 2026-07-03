@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "luminque-ops"
+version = "0.1.0"
+description = "Background agent for Windows GUI interaction capture and analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "mss>=9.0",
+    "pynput>=1.7",
+    "pillow>=10.0",
+    "sqlalchemy>=2.0",
+    "requests>=2.31",
+    "psutil>=5.9",
+    "keyring>=24.0",
+]
+
+[project.scripts]
+luminque = "luminque.main:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["luminque"]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.0",
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

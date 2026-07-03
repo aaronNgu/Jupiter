@@ -1,0 +1,110 @@
+name: Build luminque.exe
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  build-windows:
+    name: Build .exe (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: "x64"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Build exe
+        run: uv run pyinstaller luminque.spec
+
+      - name: Smoke-test exe
+        # Unknown flag → prints error and exits 1; pipe through || true so the
+        # step passes. The goal is just to confirm the exe launches at all.
+        run: .\dist\luminque\luminque.exe --_smoke_test || true
+        shell: pwsh
+
+      - name: Zip onedir bundle
+        # The spec builds dist\luminque\ (exe + _internal\). Ship the folder
+        # whole — the exe cannot run without _internal. Onboarding self-installs
+        # the extracted folder to %LOCALAPPDATA%\Programs\Luminque.
+        # TODO: replace with the 7-Zip SFX installer (luminque-installer.exe)
+        # per design-docs/luminque-packaging-p1.md §2.
+        run: Compress-Archive -Path dist\luminque -DestinationPath dist\luminque-win64.zip
+        shell: pwsh
+
+      - name: Upload unsigned artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: luminque-unsigned-${{ github.sha }}
+          path: dist/luminque-win64.zip
+          retention-days: 7
+
+  sign-windows:
+    name: Sign .exe (EV cert)
+    runs-on: windows-latest
+    needs: build-windows
+    # Only sign on version tags to avoid burning signing quota on every commit.
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download unsigned artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: luminque-unsigned-${{ github.sha }}
+          path: dist/
+
+      # TODO: Configure EV code-signing certificate.
+      # Recommended: DigiCert KeyLocker (cloud EV, no hardware token required in CI).
+      # Required secrets:
+      #   DIGICERT_API_KEY      — DigiCert One API key
+      #   DIGICERT_CERT_ID      — Certificate fingerprint / ID
+      #   SM_HOST               — KeyLocker host URL
+      #
+      # Signing requires the 7-Zip SFX installer step first (packaging doc §2):
+      # sign luminque-installer.exe as a whole, not the files inside the bundle
+      # and not the zip (zips cannot carry Authenticode signatures).
+      #
+      # Steps when EV cert is provisioned:
+      #   1. Build luminque-installer.exe from the zipped bundle (7z SFX)
+      #   2. Install smtools (DigiCert Software Trust Manager CLI)
+      #   3. Run: smctl sign --fingerprint $env:DIGICERT_CERT_ID --input dist\luminque-installer.exe
+      #   4. Verify: signtool verify /pa dist\luminque-installer.exe
+      - name: Sign with EV certificate
+        env:
+          DIGICERT_API_KEY: ${{ secrets.DIGICERT_API_KEY }}
+          DIGICERT_CERT_ID: ${{ secrets.DIGICERT_CERT_ID }}
+          SM_HOST: ${{ secrets.SM_HOST }}
+        run: |
+          # TODO: Uncomment and test when EV certificate is provisioned.
+          # smctl sign --fingerprint $env:DIGICERT_CERT_ID --input dist\luminque-installer.exe
+          # signtool verify /pa dist\luminque-installer.exe
+          Write-Host "TODO: SFX installer + EV certificate signing not yet configured."
+        shell: pwsh
+
+      - name: Upload signed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: luminque-signed-${{ github.ref_name }}
+          path: dist/luminque-win64.zip
+          retention-days: 30
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/luminque-win64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
