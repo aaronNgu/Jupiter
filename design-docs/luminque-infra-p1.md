@@ -71,10 +71,16 @@ Resources:
 
 Human prerequisites an agent cannot do (do these first, by hand):
 
-1. AWS account + MFA on root; an IAM identity for Terraform.
+1. AWS account: MFA on root (then never use root). Admin access for the
+   operator via an IAM Identity Center user (`aws sso login` — short-lived
+   creds; no long-lived access keys). Terraform runs as this identity —
+   no separate Terraform user. Pick the region; set a billing alarm.
 2. Register/choose the domain; hosted zone or CNAME access.
 3. Bootstrap the state bucket + lock table.
-4. GitHub repo secrets for CI (AWS role via OIDC preferred over static keys).
+4. Nothing else by hand: the GitHub OIDC provider + CI deploy role
+   (scoped to ECR push + `ecs:UpdateService`, trust-limited to this repo)
+   are Terraform resources, as are all task/service roles. No IAM users
+   with static keys anywhere.
 
 ## CI/CD (GitHub Actions)
 

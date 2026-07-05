@@ -55,7 +55,9 @@ knows which environment it is in.
 
 ## API
 
-Three endpoints. All responses JSON unless noted.
+Three endpoints, plus an unauthenticated `GET /healthz` returning
+`200 {"status": "ok"}` for load-balancer health checks (no DB or S3 calls —
+liveness only). All responses JSON unless noted.
 
 ### `POST /v1/enroll`
 
