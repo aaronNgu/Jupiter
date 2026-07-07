@@ -1,8 +1,11 @@
 """
 luminque.onboarding.enrollment — device enrollment against the Luminque server.
 
-Calls POST /api/v1/devices/enroll and persists the returned credentials in
-Windows Credential Manager so the sender can read them on every run.
+Calls POST /v1/enroll and persists the returned device token and the endpoint
+URL in Windows Credential Manager so the sender can read them on every run.
+Identity comes from the token: the server derives the tenant from the
+enrollment token and later resolves agent/tenant from X-Device-Token, so
+nothing else needs persisting locally.
 """
 
 import platform
@@ -16,31 +19,29 @@ KEYRING_SERVICE = "luminque-sender"
 KEYRING_KEYS = {
     "auth_token":   "luminque_api_key",
     "endpoint_url": "luminque_endpoint_url",
-    "tenant_id":    "luminque_tenant_id",
-    "device_id":    "luminque_device_id",
 }
 
 
-def enroll_device(api_url: str, enrollment_token: str, tenant_id: str) -> dict:
+def enroll_device(api_url: str, enrollment_token: str) -> dict:
     """
-    POST /api/v1/devices/enroll and store returned credentials in keyring.
+    POST /v1/enroll and store the returned device token in keyring.
 
     Raises RuntimeError with a user-readable message on any failure.
     Returns the full response dict on success.
     """
     payload = {
-        "tenant_id":         tenant_id,
+        "enrollment_token":  enrollment_token,
         "hostname":          socket.gethostname(),
         "platform":          "windows",
         "os_version":        _get_os_version(),
-        "enrollment_token":  enrollment_token,
     }
 
     try:
         resp = requests.post(
-            f"{api_url.rstrip('/')}/api/v1/devices/enroll",
+            f"{api_url.rstrip('/')}/v1/enroll",
             json=payload,
             timeout=30,
+            verify=True,
         )
     except requests.exceptions.ConnectionError as exc:
         raise RuntimeError(
@@ -61,13 +62,8 @@ def enroll_device(api_url: str, enrollment_token: str, tenant_id: str) -> dict:
 
     data = resp.json()
 
-    # The server assigns its own device_id; the sender must echo it back as
-    # device_id in session/health payloads (the API validates it against the
-    # token's device). It is NOT our local machine_id.
     keyring.set_password(KEYRING_SERVICE, KEYRING_KEYS["auth_token"],   data["auth_token"])
     keyring.set_password(KEYRING_SERVICE, KEYRING_KEYS["endpoint_url"], api_url)
-    keyring.set_password(KEYRING_SERVICE, KEYRING_KEYS["tenant_id"],    data["tenant_id"])
-    keyring.set_password(KEYRING_SERVICE, KEYRING_KEYS["device_id"],    str(data["device_id"]))
 
     return data
 

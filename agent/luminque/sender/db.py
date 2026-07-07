@@ -35,59 +35,44 @@ def open_capture_db(db_path: Path):
     return session
 
 
-def query_batch(
-    session,
-    last_action_id: int,
-    last_screenshot_id: int,
-    action_limit: int,
-    screenshot_limit: int,
-) -> tuple:
-    """Returns (action_events, screenshots, window_events) for the batch.
+def query_unsent_screenshots(session, last_screenshot_id: int, limit: int) -> list:
+    """Screenshots past the cursor that still hold pixel data, oldest first.
 
-    Mouse-move events are excluded — they are pure cursor-position noise and
-    carry no meaningful information for SOP discovery.  Skipping them here also
-    keeps batches dense with signal (clicks, scrolls, keypresses) and prevents
-    the 5 000-move-per-session problem seen in early recordings.
-
-    Screenshots are queried independently using their own ID cursor.
-    OpenAdapt does not reliably populate ``action_event.screenshot_id`` (the
-    FK is NULL on all events in practice), so the old approach of collecting
-    screenshot IDs from action events silently sent zero screenshots.
+    Rows whose png_data was nulled (retention cap / capture-side disk guard)
+    are skipped permanently — there is nothing left to upload for them.
     """
-    from luminque.sender.models import ActionEvent, Screenshot, WindowEvent
+    from luminque.sender.models import Screenshot
 
-    action_events = (
-        session.query(ActionEvent)
-        .filter(ActionEvent.id > last_action_id)
-        .filter(ActionEvent.name != "move")
-        .order_by(ActionEvent.id.asc())
-        .limit(action_limit)
-        .all()
-    )
-
-    # Fetch screenshots with their own cursor — independent of action_event FKs.
-    # Only send screenshots that have actual pixel data.
-    screenshots = (
+    return (
         session.query(Screenshot)
         .filter(Screenshot.id > last_screenshot_id)
         .filter(Screenshot.png_data != None)  # noqa: E711
         .order_by(Screenshot.id.asc())
-        .limit(screenshot_limit)
+        .limit(limit)
         .all()
     )
 
-    window_event_ids = {
-        e.window_event_id for e in action_events if e.window_event_id is not None
-    }
-    window_events = (
+
+def window_for_screenshot(session, screenshot):
+    """The window_event governing a frame, or None.
+
+    captureV2 inserts a window_event only when the foreground window changes,
+    stamped with the same wall-clock timestamp as the screenshot that
+    triggered it — so the row governing a frame is the latest one at or
+    before the frame's timestamp. Same recording only: after a capture
+    restart the first frames may legitimately precede any window stamp
+    (UIPI blocks foreground reads in elevated contexts), and a previous
+    recording's window is stale information, not a fallback.
+    """
+    from luminque.sender.models import WindowEvent
+
+    return (
         session.query(WindowEvent)
-        .filter(WindowEvent.id.in_(window_event_ids))
-        .all()
-        if window_event_ids
-        else []
+        .filter(WindowEvent.recording_id == screenshot.recording_id)
+        .filter(WindowEvent.timestamp <= screenshot.timestamp)
+        .order_by(WindowEvent.timestamp.desc(), WindowEvent.id.desc())
+        .first()
     )
-
-    return action_events, screenshots, window_events
 
 
 def cleanup_sent_screenshots(session, max_screenshot_id: int) -> None:

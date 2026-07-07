@@ -82,11 +82,7 @@ def _show_server_setup(root: tk.Tk) -> None:
 
     tk.Label(frame, text="Enrollment token:", font=("Segoe UI", 9)).pack(anchor="w")
     token_var = tk.StringVar()
-    tk.Entry(frame, textvariable=token_var, show="*", width=52).pack(anchor="w", pady=(2, 10))
-
-    tk.Label(frame, text="Tenant ID:", font=("Segoe UI", 9)).pack(anchor="w")
-    tenant_var = tk.StringVar()
-    tk.Entry(frame, textvariable=tenant_var, width=52).pack(anchor="w", pady=(2, 0))
+    tk.Entry(frame, textvariable=token_var, show="*", width=52).pack(anchor="w", pady=(2, 0))
 
     btn = tk.Frame(frame)
     btn.pack(side=tk.BOTTOM, fill=tk.X, pady=(16, 0))
@@ -95,7 +91,6 @@ def _show_server_setup(root: tk.Tk) -> None:
     tk.Button(btn, text="Connect", width=10, default=tk.ACTIVE,
               command=lambda: _on_connect(
                   root, url_var.get().strip(), token_var.get().strip(),
-                  tenant_var.get().strip(),
               )).pack(side=tk.RIGHT)
 
 
@@ -103,18 +98,12 @@ def _show_server_setup(root: tk.Tk) -> None:
 # Connect handler
 # ---------------------------------------------------------------------------
 
-def _on_connect(root: tk.Tk, api_url: str, enrollment_token: str, tenant_id: str) -> None:
+def _on_connect(root: tk.Tk, api_url: str, enrollment_token: str) -> None:
     if not api_url:
         messagebox.showerror("Missing Field", "Please enter the server URL.")
         return
-    if len(enrollment_token) < 32:
-        messagebox.showerror(
-            "Missing Field",
-            "Enrollment token must be at least 32 characters.",
-        )
-        return
-    if not tenant_id:
-        messagebox.showerror("Missing Field", "Please enter the Tenant ID.")
+    if not enrollment_token:
+        messagebox.showerror("Missing Field", "Please enter the enrollment token.")
         return
 
     root.withdraw()
@@ -122,7 +111,7 @@ def _on_connect(root: tk.Tk, api_url: str, enrollment_token: str, tenant_id: str
         exe_path = install_exe()
 
         from luminque.onboarding.enrollment import enroll_device
-        enroll_device(api_url=api_url, enrollment_token=enrollment_token, tenant_id=tenant_id)
+        enroll_device(api_url=api_url, enrollment_token=enrollment_token)
 
         from luminque.onboarding.scheduler import register_all_tasks
         register_all_tasks(exe_path)

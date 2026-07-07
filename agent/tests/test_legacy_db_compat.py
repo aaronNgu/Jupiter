@@ -44,8 +44,11 @@ def test_capturev2_appends_to_legacy_db(legacy_db):
 
 
 def test_sender_reads_mixed_legacy_and_v2_rows(legacy_db):
-    from luminque.sender.db import open_capture_db, query_batch
-    from luminque.sender.payload import build_events_request
+    from luminque.sender.db import (
+        open_capture_db,
+        query_unsent_screenshots,
+        window_for_screenshot,
+    )
 
     conn = schema.open_db(legacy_db)
     rec_id = schema.insert_recording(conn, task_description="luminque-background")
@@ -53,17 +56,18 @@ def test_sender_reads_mixed_legacy_and_v2_rows(legacy_db):
     conn.close()
 
     session = open_capture_db(legacy_db)
-    actions, screenshots, window_events = query_batch(session, 0, 0, 100, 100)
-    assert [a.name for a in actions] == ["click"]  # legacy unsent action
+    screenshots = query_unsent_screenshots(session, 0, 100)
     assert len(screenshots) == 2  # one legacy + one captureV2
     assert {bytes(s.png_data) for s in screenshots} == {
         b"legacy-png-bytes",
         b"v2-png",
     }
-    assert [w.title for w in window_events] == ["Legacy Window"]
-
-    body = build_events_request(actions, screenshots, window_events)
-    assert len(body["events"]) == 4
+    # The legacy frame joins its legacy window stamp (same recording, same
+    # timestamp); the captureV2 frame is in a fresh recording with no stamp.
+    legacy_shot = [s for s in screenshots if bytes(s.png_data) == b"legacy-png-bytes"][0]
+    v2_shot = [s for s in screenshots if bytes(s.png_data) == b"v2-png"][0]
+    assert window_for_screenshot(session, legacy_shot).title == "Legacy Window"
+    assert window_for_screenshot(session, v2_shot) is None
 
 
 def test_schema_matches_legacy_columns_exactly(legacy_db, tmp_path):

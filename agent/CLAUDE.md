@@ -87,17 +87,31 @@ and pyproject.toml.
 
 ### --send (luminque/sender/)
 
-Reads the capture DB, (Phase 2: scrubs PII), and POSTs gzip-compressed JSON
-to the Luminque cloud ingest endpoint. Short-lived — runs and exits.
+Reads the capture DB, (Phase 2: scrubs PII), and ships screenshots to the
+Luminque ingestion service (`design-docs/luminque-ingestion-p1.md`).
+Short-lived — runs and exits.
 
 Key design decisions:
+- One `POST /v1/screenshots` multipart request per frame: PNG bytes plus
+  `captured_at` (ISO-8601 UTC from the capture DB) and `window_title` when
+  derivable — the latest `window_event` at or before the frame's timestamp
+  in the same recording (captureV2 stamps window events on change, not per
+  frame). `app_name` is in the contract but captureV2 never records it.
+  Action events are not sent anywhere — they exist only locally to gate
+  capture sampling.
 - Persistent cursor in `%APPDATA%\Luminque\sender_state.json`
-  (`last_sent_action_event_id`). Cursor only advances on HTTP 200.
-- At-least-once delivery. Server must deduplicate on `(machine_id, action_event.id)`.
-- Screenshots are base64-encoded inline (no multipart). ~33% size overhead,
-  mitigated by gzip.
-- API key and endpoint URL stored in Windows Credential Manager via `keyring`.
-  Never in plaintext config files.
+  (`last_sent_screenshot_id`). Advances per accepted frame — HTTP 201
+  (stored) and 200 (server-side duplicate) both count — so a mid-batch
+  failure never resends frames the server already has. Unknown keys in old
+  state files (pre-v1 cursors) are ignored and dropped on the next save.
+- At-least-once delivery. The server dedupes on `(agent_id, captured_at)`;
+  duplicates return 200, never an error.
+- `POST /v1/heartbeat` (empty body) once per cycle, even with nothing to
+  upload. Non-fatal if it fails.
+- Identity comes solely from the `X-Device-Token` header; request bodies
+  never carry tenant or device ids.
+- Device token and endpoint URL stored in Windows Credential Manager via
+  `keyring`. Never in plaintext config files.
 - 6-hour local retention cap: `screenshot.png_data` is nullified (not deleted)
   after 6h to bound local storage. The capture-side guard (see below)
   backstops at 8h so disk stays bounded even when the sender never runs.
@@ -134,13 +148,17 @@ No admin/UAC elevation required at any point. All tasks run as the current user.
    captured 300 ms *after* each event (post-action frames, often transient)
    and burned CPU in the event pipeline. See `luminque-capture-p3.md` §3.
 
-5. **keyring for credentials** — never store the API key in a file, env var,
-   or the registry. Windows Credential Manager is the right place. `verify=True`
-   on all HTTPS calls is non-negotiable.
+5. **keyring for credentials** — never store the device token in a file, env
+   var, or the registry. Windows Credential Manager is the right place.
+   Exactly two entries: the device token (from `POST /v1/enroll`) and the
+   endpoint URL — identity travels only in the `X-Device-Token` header, so
+   nothing else needs persisting. `verify=True` on all HTTPS calls is
+   non-negotiable.
 
 6. **At-least-once delivery with server-side deduplication** — the sender never
-   advances the cursor on failure. Simpler than two-phase commit; the server
-   handles duplicates.
+   advances the cursor on failure, and retries resend. Simpler than two-phase
+   commit; the server dedupes on `(agent_id, captured_at)` and answers
+   duplicates with 200, which the sender treats as success.
 
 ## Design docs
 
