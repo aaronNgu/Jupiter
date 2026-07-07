@@ -204,3 +204,9 @@ def test_cli_creates_enrollable_tenant(client, capsys, monkeypatch):
     )
     agent_id, auth_token = enroll(client, enrollment_token)
     assert uuid.UUID(agent_id)
+
+
+def test_healthz_is_unauthenticated_liveness(client):
+    resp = client.get("/healthz")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}

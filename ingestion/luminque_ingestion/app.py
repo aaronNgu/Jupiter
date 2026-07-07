@@ -27,6 +27,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="luminque-ingestion", lifespan=lifespan)
 
 
+@app.get("/healthz")
+def healthz():
+    # ALB target-group health check: liveness only, no DB or S3 calls.
+    return {"status": "ok"}
+
+
 def parse_captured_at(raw: str) -> datetime:
     """Parse the client's ISO-8601 UTC capture time; naive input is taken as UTC."""
     try:

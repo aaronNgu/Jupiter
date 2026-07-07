@@ -1,0 +1,77 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write # OIDC federation — the only AWS auth; no keys in secrets
+
+env:
+  AWS_REGION: us-east-1
+  # Role ARN and names are identifiers, not credentials. Must match the
+  # terraform outputs (ci_deploy_role_arn, ecs_cluster, ecs_service).
+  AWS_ROLE_ARN: arn:aws:iam::047285411146:role/luminque-ci-deploy
+  ECR_REPOSITORY: luminque-ingestion
+  ECS_CLUSTER: luminque
+  ECS_SERVICE: luminque-ingestion
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ingestion
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      # Contract tests skip themselves if Postgres+MinIO are unreachable, so
+      # CI must bring them up and wait — a silent skip would green-light a
+      # broken build.
+      - name: Start Postgres + MinIO
+        run: |
+          docker compose up -d
+          timeout 60 bash -c 'until docker compose exec -T db pg_isready -U postgres -q; do sleep 1; done'
+          timeout 60 bash -c 'until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done'
+
+      - name: Run tests
+        run: |
+          uv sync --frozen
+          uv run pytest
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image (:sha and :latest)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build \
+            -t "$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}" \
+            -t "$REGISTRY/$ECR_REPOSITORY:latest" \
+            ingestion
+          docker push "$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}"
+          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
+
+      # Task definition tracks :latest, so a forced deployment re-pulls it.
+      - name: Redeploy ECS service
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --force-new-deployment
