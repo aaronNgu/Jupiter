@@ -15,7 +15,19 @@
 #   - Run luminque.exe from a cmd.exe window and read the traceback.
 #   - Add missing modules to hiddenimports, then revert debug/console flags.
 
+import os
+
 from PyInstaller.utils.hooks import collect_data_files
+
+# Diagnostic build: LUMINQUE_DEBUG=1 uv run pyinstaller luminque.spec
+# Outputs to dist\luminque-debug\ (release stays dist\luminque\ — the two
+# coexist). Attaches a console to EVERY mode and enables the verbose
+# bootloader, so tracebacks and hidden-import errors are visible instead of
+# vanishing with the window. Diagnosis only: if onboarding is COMPLETED from
+# a debug build, the installed scheduled tasks run the debug exe — sender
+# flashes a console every cycle and capture keeps one open permanently.
+# Re-run onboarding from the release build once diagnosis is done.
+DEBUG_BUILD = os.environ.get("LUMINQUE_DEBUG", "") == "1"
 
 block_cipher = None
 
@@ -104,13 +116,15 @@ exe = EXE(
                                      # Without this, EXE builds a onefile-style
                                      # binary straight into dist\ and COLLECT
                                      # fails with OSError [Errno 22] re-copying it.
-    name="luminque",
-    debug=False,                      # TEMPORARY — revert before release
+    name="luminque",                 # must stay "luminque" in BOTH builds:
+                                     # install_exe() and the scheduled tasks
+                                     # hardcode luminque.exe
+    debug=DEBUG_BUILD,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
     upx_exclude=[],
-    console=False,                    # TEMPORARY — revert before release
+    console=DEBUG_BUILD,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,                # None = match build machine (x64)
@@ -128,5 +142,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="luminque",                 # produces dist\luminque\
+    name="luminque-debug" if DEBUG_BUILD else "luminque",   # dist\<name>\
 )
