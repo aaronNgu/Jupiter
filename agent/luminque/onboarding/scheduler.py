@@ -21,12 +21,19 @@ TASK_NAMES = {
 
 
 def _current_user() -> str:
-    """Return DOMAIN\\username for the currently logged-on user.
+    """Return the logged-on user's account name for the schtasks /RU argument.
 
-    Used in /RU so tasks run as the real user, not SYSTEM.
-    On a domain machine this is DOMAIN\\user; on a local account it is
-    HOSTNAME\\user (or just username — both work with schtasks).
+    `whoami` reads the actual logon token, so it reports the principal
+    schtasks can resolve — including AzureAD\\user and MicrosoftAccount
+    forms on personal Windows 11 machines, where the USERDOMAIN/USERNAME
+    env vars name an account schtasks rejects (task registration then fails
+    right after enrollment, so the agent enrolls but never sends).
+    The env-var derivation stays as a fallback if whoami is unavailable.
     """
+    result = subprocess.run(["whoami"], capture_output=True, text=True)
+    name = (result.stdout or "").strip()
+    if result.returncode == 0 and name:
+        return name
     domain = os.environ.get("USERDOMAIN", "")
     user = os.environ.get("USERNAME", "")
     if domain and domain.upper() != os.environ.get("COMPUTERNAME", "").upper():
@@ -52,8 +59,10 @@ def deregister_all_tasks() -> None:
 def _run(cmd: list[str]) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
+        # (x or "") so a missing stream can never turn the real schtasks
+        # error into an AttributeError that masks it.
         raise RuntimeError(
-            f"schtasks failed:\n{result.stderr.strip() or result.stdout.strip()}"
+            f"schtasks failed:\n{(result.stderr or '').strip() or (result.stdout or '').strip()}"
         )
 
 

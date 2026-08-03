@@ -120,6 +120,42 @@ def test_enroll_device_raises_on_401():
     mock_set.assert_not_called()
 
 
+def test_current_user_prefers_whoami():
+    """/RU must come from the logon token (whoami), not env vars — env-var
+    names can be unresolvable for Microsoft-account/AzureAD users, which
+    makes task registration fail right after a successful enrollment."""
+    from luminque.onboarding import scheduler
+
+    result = MagicMock(returncode=0, stdout="AzureAD\\Wholesome User\n", stderr="")
+    with patch("luminque.onboarding.scheduler.subprocess.run", return_value=result):
+        assert scheduler._current_user() == "AzureAD\\Wholesome User"
+
+
+def test_current_user_falls_back_to_env_when_whoami_fails(monkeypatch):
+    from luminque.onboarding import scheduler
+
+    monkeypatch.setenv("USERDOMAIN", "CORP")
+    monkeypatch.setenv("USERNAME", "alice")
+    monkeypatch.setenv("COMPUTERNAME", "PC-01")
+    result = MagicMock(returncode=1, stdout="", stderr="not recognized")
+    with patch("luminque.onboarding.scheduler.subprocess.run", return_value=result):
+        assert scheduler._current_user() == "CORP\\alice"
+
+
+def test_run_reports_schtasks_error_even_without_streams():
+    """The error formatter must surface the schtasks failure, never crash on
+    a missing stream (the 'NoneType' has no attribute 'strip' masking bug)."""
+    from luminque.onboarding.scheduler import _run
+
+    result = MagicMock(returncode=1, stdout=None, stderr=None)
+    with patch("luminque.onboarding.scheduler.subprocess.run", return_value=result):
+        try:
+            _run(["schtasks", "/Create"])
+            assert False, "expected RuntimeError"
+        except RuntimeError as e:
+            assert "schtasks failed" in str(e)
+
+
 def test_scheduler_module_imports():
     """scheduler.py imports and exposes register_all_tasks / deregister_all_tasks."""
     from luminque.onboarding.scheduler import (  # noqa: F401
