@@ -137,13 +137,13 @@ def _run(cmd: list[str]) -> None:
 
 
 def _register_sender(exe_path: str) -> None:
-    """Run every 2 minutes (increase to 45 before production release)."""
+    """Run every 15 minutes."""
     _run([
         "schtasks", "/Create", "/F",
         "/TN", TASK_NAMES["sender"],
         "/TR", f'"{exe_path}" --send',
         "/SC", "MINUTE",
-        "/MO", "2",
+        "/MO", "15",
         "/RU", _current_user(),
         "/IT",
         "/RL", "LIMITED",
