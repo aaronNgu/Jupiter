@@ -160,18 +160,20 @@ def install_exe() -> str:
 
 
 def _start_capture_now() -> None:
-    """Kick off capture by running its scheduled task.
+    """Launch capture immediately via its Startup shortcut.
 
-    A process started by the Task Scheduler service is owned by that service,
-    not by onboarding, so it survives onboarding exiting. This is more reliable
-    than spawning a DETACHED_PROCESS subprocess, which dies with the parent
-    when the parent lives inside a kill-on-close Job Object (common in RDP/VM
-    sessions). Requires register_all_tasks() to have run first.
+    Handed off to the shell (explorer.exe) so capture runs in the user's own
+    session and survives onboarding exiting — a plain detached subprocess can
+    die with onboarding when the parent lives inside a kill-on-close Job Object
+    (common in RDP/VM sessions). Requires create_capture_autostart() (via
+    register_all_tasks) to have created the shortcut first. If this no-ops for
+    any reason, capture still starts on the next login. explorer.exe returns a
+    non-zero exit code even on success, so it is not checked.
     """
-    from luminque.onboarding.scheduler import TASK_NAMES
+    from luminque.onboarding.scheduler import capture_shortcut_path
 
     subprocess.run(
-        ["schtasks", "/Run", "/TN", TASK_NAMES["capture"]],
+        ["explorer.exe", capture_shortcut_path()],
         capture_output=True,
     )
 

@@ -36,21 +36,23 @@ def test_install_exe_noop_when_already_at_target(tmp_path, monkeypatch):
     assert result == str(dst)
 
 
-def test_start_capture_now_runs_scheduled_task():
-    """_start_capture_now() starts capture via its scheduled task (schtasks /Run),
-    so the process is owned by the Task Scheduler service and survives
-    onboarding exiting."""
+def test_start_capture_now_launches_startup_shortcut(monkeypatch, tmp_path):
+    """_start_capture_now() launches capture via its Startup-folder shortcut,
+    handed to the shell (explorer.exe) so it runs in the user's session and
+    survives onboarding exiting. Capture is no longer a scheduled task."""
     from luminque.onboarding import _start_capture_now
-    from luminque.onboarding.scheduler import TASK_NAMES
+    from luminque.onboarding.scheduler import capture_shortcut_path
 
+    monkeypatch.setenv("APPDATA", str(tmp_path))
     mock_run = MagicMock()
     with patch("luminque.onboarding.subprocess.run", mock_run):
         _start_capture_now()
 
     mock_run.assert_called_once()
     cmd = mock_run.call_args[0][0]
-    assert cmd[:3] == ["schtasks", "/Run", "/TN"]
-    assert TASK_NAMES["capture"] in cmd
+    assert cmd[0] == "explorer.exe"
+    assert cmd[1] == capture_shortcut_path()
+    assert cmd[1].endswith("Luminque Capture.lnk")
 
 
 def _mock_enroll_response(status_code=201):
@@ -154,6 +156,51 @@ def test_run_reports_schtasks_error_even_without_streams():
             assert False, "expected RuntimeError"
         except RuntimeError as e:
             assert "schtasks failed" in str(e)
+
+
+def test_register_all_tasks_uses_startup_for_capture_not_onlogon(monkeypatch, tmp_path):
+    """Capture must autostart via a Startup-folder shortcut (no admin), never
+    an /SC ONLOGON scheduled task (which schtasks refuses without elevation).
+    Sender and watchdog remain time-triggered tasks."""
+    from luminque.onboarding import scheduler
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    ok = MagicMock(returncode=0, stdout="CORP\\alice", stderr="")
+    calls = []
+
+    def fake_run(cmd, *a, **k):
+        calls.append(cmd)
+        return ok
+
+    with patch("luminque.onboarding.scheduler.subprocess.run", side_effect=fake_run):
+        scheduler.register_all_tasks(r"C:\Programs\Luminque\luminque.exe")
+
+    # No ONLOGON trigger anywhere, and no capture task is created.
+    assert all("ONLOGON" not in c for c in calls)
+    schtasks_creates = [c for c in calls if c[:2] == ["schtasks", "/Create"]]
+    created_tns = [c[c.index("/TN") + 1] for c in schtasks_creates]
+    assert set(created_tns) == {"LumniqueSender", "LumniqueWatchdog"}
+
+    # Capture autostart is a shortcut written into the Startup folder.
+    ps_calls = [c for c in calls if c and c[0] == "powershell"]
+    assert len(ps_calls) == 1
+    assert "Luminque Capture.lnk" in ps_calls[0][-1]
+    assert scheduler.capture_shortcut_path().endswith(
+        os.path.join("Startup", "Luminque Capture.lnk")
+    )
+
+
+def test_remove_capture_autostart_is_idempotent(monkeypatch, tmp_path):
+    from luminque.onboarding import scheduler
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    os.makedirs(scheduler.startup_dir())
+    shortcut = scheduler.capture_shortcut_path()
+    open(shortcut, "w").close()
+
+    scheduler.remove_capture_autostart()
+    assert not os.path.exists(shortcut)
+    scheduler.remove_capture_autostart()  # already gone → no error
 
 
 def test_scheduler_module_imports():

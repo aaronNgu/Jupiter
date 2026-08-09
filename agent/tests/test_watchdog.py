@@ -45,6 +45,21 @@ class TestFindCaptureProcess:
         assert result is mock_proc
 
 
+class TestStartCapture:
+    def test_spawns_detached_capture_process(self):
+        """Capture has no scheduled task anymore, so the watchdog relaunches
+        the exe directly (--capture). Detached so it outlives the watchdog run."""
+        import sys
+
+        from luminque.watchdog import _start_capture
+
+        with patch("luminque.watchdog.subprocess.Popen") as mock_popen:
+            _start_capture()
+
+        mock_popen.assert_called_once()
+        assert mock_popen.call_args[0][0] == [sys.executable, "--capture"]
+
+
 class TestMidnightWindow:
     def test_true_in_midnight_window(self):
         from luminque.watchdog import _is_midnight_window

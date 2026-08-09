@@ -11,15 +11,15 @@
 #   rmtree leaves the install half-deleted: luminque.exe may still be sitting
 #   there, but its _internal\ directory is gutted, so the exe — and therefore
 #   the Stop Luminque shortcut — will not run. That is exactly when you most
-#   need a way to stop the thing. This script uses only schtasks + taskkill, so
-#   it works against a broken install.
+#   need a way to stop the thing. This script uses only schtasks, taskkill, and
+#   file removal, so it works against a broken install.
 #
-# ORDER MATTERS — TASKS FIRST, THEN PROCESSES:
-#   The watchdog task fires every 5 minutes and restarts capture. If you kill
-#   processes first (which is what --stop does), the watchdog TASK can fire in
-#   the gap and resurrect capture before you delete it. Deleting the tasks
-#   first closes that window. Within the process kill, watchdog still goes
-#   first for the same reason.
+# ORDER MATTERS — TASKS + AUTOSTART FIRST, THEN PROCESSES:
+#   Two things can resurrect capture: the watchdog TASK (fires every 5 min and
+#   relaunches capture) and the capture autostart shortcut in the Startup
+#   folder (fires at next login). Delete the tasks AND remove the autostart
+#   shortcut before killing processes, so nothing can undo the kill sweep.
+#   Within the process kill, watchdog still goes first for the same reason.
 #
 # TASK NAMES ARE MISSPELLED ON PURPOSE:
 #   They are registered as "Lumnique*" (not "Luminque*") — see
@@ -43,13 +43,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Must match luminque/onboarding/scheduler.py TASK_NAMES (note the spelling).
+# Scheduled tasks. LumniqueCapture is legacy — capture now autostarts from a
+# Startup-folder shortcut, not a task — but it stays here so this script also
+# cleans up machines upgraded from a build that registered the capture task.
 $TaskNames = @("LumniqueWatchdog", "LumniqueCapture", "LumniqueSender")
 # Must match luminque/stop/__init__.py STOP_FLAGS.
 $StopFlags = @("--watchdog", "--capture", "--send")
 
 $ExePath      = Join-Path $env:LOCALAPPDATA "Programs\Luminque\luminque.exe"
 $ShortcutPath = Join-Path $env:USERPROFILE "Desktop\Stop Luminque.lnk"
+# Must match CAPTURE_SHORTCUT_NAME / startup_dir() in scheduler.py.
+$CaptureAutostart = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\Luminque Capture.lnk"
 
 
 function Remove-LuminqueTasks {
@@ -63,6 +67,17 @@ function Remove-LuminqueTasks {
         } else {
             Write-Host "  absent   $name" -ForegroundColor DarkGray
         }
+    }
+}
+
+
+function Remove-CaptureAutostart {
+    Write-Host "`n=== Capture autostart shortcut ===" -ForegroundColor Cyan
+    if (Test-Path $CaptureAutostart) {
+        Remove-Item $CaptureAutostart -Force
+        Write-Host "  removed  $CaptureAutostart"
+    } else {
+        Write-Host "  absent   $CaptureAutostart" -ForegroundColor DarkGray
     }
 }
 
@@ -146,11 +161,20 @@ function Show-State {
     } else {
         Write-Host "  no Luminque scheduled tasks" -ForegroundColor Green
     }
+
+    if (Test-Path $CaptureAutostart) {
+        Write-Host "  capture autostart shortcut still present" -ForegroundColor Yellow
+    } else {
+        Write-Host "  no capture autostart shortcut" -ForegroundColor Green
+    }
 }
 
 
 if (-not $ShortcutOnly) {
+    # Tasks and the autostart shortcut go first, then processes: with nothing
+    # left to relaunch capture, the kill sweep cannot be undone mid-run.
     Remove-LuminqueTasks
+    Remove-CaptureAutostart
     Stop-LuminqueProcesses
 }
 if (-not $NoShortcut) {

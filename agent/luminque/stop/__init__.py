@@ -2,14 +2,18 @@ import os
 import subprocess
 import psutil
 
+# LumniqueCapture is a legacy task name: capture now autostarts from a Startup
+# shortcut, not a task. It stays in the delete list so `--stop` also cleans up
+# machines upgraded from a build that did register the capture task.
 TASK_NAMES = ["LumniqueCapture", "LumniqueSender", "LumniqueWatchdog"]
 STOP_FLAGS = {"--capture", "--watchdog", "--send"}
 CURRENT_PID = os.getpid()
 
 
 def run():
-    _kill_luminque_processes()
     _delete_scheduled_tasks()
+    _remove_capture_autostart()
+    _kill_luminque_processes()
 
 
 def _kill_luminque_processes():
@@ -50,3 +54,14 @@ def _delete_scheduled_tasks():
             ["schtasks", "/Delete", "/F", "/TN", name],
             capture_output=True,
         )
+
+
+def _remove_capture_autostart():
+    """Remove the capture Startup shortcut so login does not relaunch capture.
+    Done before killing processes: with the shortcut gone and the tasks
+    deleted, nothing can resurrect capture during the kill sweep."""
+    try:
+        from luminque.onboarding.scheduler import remove_capture_autostart
+        remove_capture_autostart()
+    except Exception:
+        pass

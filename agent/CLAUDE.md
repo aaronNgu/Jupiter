@@ -119,25 +119,47 @@ Key design decisions:
 ### --watchdog (luminque/watchdog/)
 
 Short-lived process, runs every 5 minutes via Task Scheduler. Checks capture
-process liveness and RSS. Restarts capture if dead or > 500 MB RSS.
+process liveness and RSS. Restarts capture if dead or > 500 MB RSS by
+relaunching the exe directly as a detached child (`--capture`) — capture has
+no scheduled task to `schtasks /Run` (see `--onboard`). Safe from the
+watchdog specifically: it is launched by the Task Scheduler service, not from
+inside onboarding's kill-on-close Job Object, so the detached child survives.
 Also performs a daily midnight restart (00:00–00:05 window) to clear memory drift.
 
 ### --onboard (luminque/onboarding/)
 
 Tkinter UI. Shown on bare double-click. Obtains explicit informed consent,
-copies the .exe to `%LOCALAPPDATA%\Programs\Luminque\luminque.exe`, registers
-three Windows Scheduled Tasks (capture / sender / watchdog) via `schtasks.exe`,
-and starts capture immediately as a detached subprocess.
+copies the .exe to `%LOCALAPPDATA%\Programs\Luminque\luminque.exe`, sets up
+autostart for the three background components, and launches capture
+immediately (via its Startup shortcut, handed to `explorer.exe` so it runs in
+the user's session).
 
-No admin/UAC elevation required at any point. All tasks run as the current user.
+Autostart is split by trigger type (`luminque/onboarding/scheduler.py`):
+- **Capture** autostarts from a per-user **Startup-folder shortcut**
+  (`%APPDATA%\...\Startup\Luminque Capture.lnk`), not a scheduled task. An
+  `/SC ONLOGON` task is a logon-trigger task that `schtasks` refuses to create
+  without admin — that failed onboarding for standard users, and elevating
+  bound the tasks to the admin's `/RU` identity so they never fired in the
+  real user's session. A Startup shortcut needs no elevation and runs as
+  whoever owns the folder.
+- **Sender** and **watchdog** are `/SC MINUTE` **Scheduled Tasks** — a
+  standard user can create time-triggered tasks that run as themselves.
+
+No admin/UAC elevation required at any point.
 
 ## Key design decisions
 
 1. **Single .exe, four modes** — avoids installer complexity. One file the IT
    admin can push via Intune/SCCM. See `luminque-deployment-p1.md`.
 
-2. **Windows Task Scheduler, not a Windows Service** — services require admin
-   install. Task Scheduler tasks can be registered per-user without elevation.
+2. **No-elevation autostart: Startup shortcut + time-triggered tasks, never a
+   service or a logon-trigger task** — a Windows Service needs admin to
+   install, and so does an `/SC ONLOGON` scheduled task (a logon-trigger task).
+   So capture (which must start at login) autostarts from a per-user
+   Startup-folder shortcut, while the sender and watchdog use `/SC MINUTE`
+   tasks, which a standard user can create to run as themselves. This keeps the
+   whole install elevation-free — the IT admin can push the one `.exe` via
+   Intune/SCCM and users onboard without UAC.
 
 3. **No argparse** — `sys.argv[1]` string comparison only. Avoids PyInstaller
    hidden-import issues with argparse internals.

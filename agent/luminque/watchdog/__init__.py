@@ -7,6 +7,7 @@ Runs as a one-shot check every 5 minutes via Task Scheduler.
 import logging
 import os
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -40,21 +41,26 @@ def _find_capture_process():
     return None
 
 
-CAPTURE_TASK_NAME = "LumniqueCapture"
-
-
 def _start_capture() -> None:
-    """Restart capture via its scheduled task.
+    """Relaunch capture as a detached child process.
 
-    The watchdog is a short-lived scheduled task that exits immediately after
-    this call. Spawning capture as a child subprocess would tie its lifetime to
-    the watchdog (it dies when the watchdog exits inside a kill-on-close Job
-    Object). Running the scheduled task hands ownership to the Task Scheduler
-    service instead, so capture outlives the watchdog run.
+    Capture no longer has a scheduled task (it autostarts from a per-user
+    Startup shortcut — see onboarding/scheduler.py), so the watchdog spawns
+    the exe directly. This is safe *from the watchdog specifically*: the
+    watchdog is itself launched by the Task Scheduler service, not from inside
+    onboarding's kill-on-close Job Object, so a DETACHED_PROCESS child
+    survives the watchdog exiting. In the frozen exe sys.executable is
+    luminque.exe; --capture selects capture mode.
     """
-    subprocess.run(
-        ["schtasks", "/Run", "/TN", CAPTURE_TASK_NAME],
-        capture_output=True,
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = (
+            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+    subprocess.Popen(
+        [sys.executable, "--capture"],
+        creationflags=creationflags,
+        close_fds=True,
     )
 
 
