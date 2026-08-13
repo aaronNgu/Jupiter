@@ -170,6 +170,10 @@ def test_register_all_tasks_uses_startup_for_capture_not_onlogon(monkeypatch, tm
 
     def fake_run(cmd, *a, **k):
         calls.append(cmd)
+        # Model the real powershell call: it writes the .lnk. create_capture_
+        # autostart now verifies the file landed, so the mock must too.
+        if cmd and cmd[0] == "powershell":
+            open(scheduler.capture_shortcut_path(), "w").close()
         return ok
 
     with patch("luminque.onboarding.scheduler.subprocess.run", side_effect=fake_run):
@@ -188,6 +192,39 @@ def test_register_all_tasks_uses_startup_for_capture_not_onlogon(monkeypatch, tm
     assert scheduler.capture_shortcut_path().endswith(
         os.path.join("Startup", "Luminque Capture.lnk")
     )
+
+
+def test_shortcut_creation_fails_loudly_when_file_not_written(monkeypatch, tmp_path):
+    """PowerShell can exit 0 while the COM Save() silently failed (security
+    software blocking Startup-folder writes is the common cause). Trusting the
+    exit code alone would report success with no shortcut on disk — and the
+    run would then fail later at schtasks, pointing at the wrong culprit."""
+    from luminque.onboarding import scheduler
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    ok_but_wrote_nothing = MagicMock(returncode=0, stdout="", stderr="")
+    with patch("luminque.onboarding.scheduler.subprocess.run",
+               return_value=ok_but_wrote_nothing):
+        try:
+            scheduler.create_capture_autostart(r"C:\Programs\Luminque\luminque.exe")
+            assert False, "expected RuntimeError"
+        except RuntimeError as e:
+            assert "Failed to create shortcut" in str(e)
+
+
+def test_schtasks_error_names_the_failing_task():
+    """The message must identify which task failed — 'schtasks failed' alone
+    is identical across builds and tasks, which made diagnosis ambiguous."""
+    from luminque.onboarding.scheduler import _run
+
+    denied = MagicMock(returncode=1, stdout="", stderr="ERROR: Access is denied.")
+    with patch("luminque.onboarding.scheduler.subprocess.run", return_value=denied):
+        try:
+            _run(["schtasks", "/Create", "/F", "/TN", "LumniqueSender", "/SC", "MINUTE"])
+            assert False, "expected RuntimeError"
+        except RuntimeError as e:
+            assert "LumniqueSender" in str(e)
+            assert "Access is denied" in str(e)
 
 
 def test_remove_capture_autostart_is_idempotent(monkeypatch, tmp_path):

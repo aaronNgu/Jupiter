@@ -119,20 +119,32 @@ def _create_shortcut(target: str, arguments: str, description: str,
     result = subprocess.run(
         ["powershell", "-Command", ps], capture_output=True, text=True
     )
-    if result.returncode != 0:
+    # Exit code alone is not proof: `powershell -Command` can exit 0 while the
+    # COM Save() failed (and security software commonly blocks writes to the
+    # Startup folder, since a .lnk launching an exe from AppData is textbook
+    # persistence behaviour). Verify the file actually landed, so this can
+    # never report a silent false success.
+    if result.returncode != 0 or not os.path.exists(shortcut_path):
+        detail = (result.stderr or "").strip() or (result.stdout or "").strip()
         raise RuntimeError(
-            "Failed to create Startup shortcut:\n"
-            f"{(result.stderr or '').strip() or (result.stdout or '').strip()}"
+            f"Failed to create shortcut at {shortcut_path}\n"
+            f"(powershell exit={result.returncode}) {detail}\n"
+            "If security software or policy blocks writes to the Startup "
+            "folder, capture cannot be set to autostart."
         )
 
 
 def _run(cmd: list[str]) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
+        # Name the task in the message: "schtasks failed" alone cannot be told
+        # apart between builds/tasks, which has cost real debugging cycles.
         # (x or "") so a missing stream can never turn the real schtasks
         # error into an AttributeError that masks it.
+        task = cmd[cmd.index("/TN") + 1] if "/TN" in cmd else " ".join(cmd)
         raise RuntimeError(
-            f"schtasks failed:\n{(result.stderr or '').strip() or (result.stdout or '').strip()}"
+            f"schtasks failed creating task '{task}':\n"
+            f"{(result.stderr or '').strip() or (result.stdout or '').strip()}"
         )
 
 
