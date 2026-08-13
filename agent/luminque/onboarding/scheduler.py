@@ -71,18 +71,34 @@ def _current_user() -> str:
 
 def register_all_tasks(exe_path: str) -> None:
     """Set up all three background components to autostart. Capture goes to the
-    Startup folder (no admin); sender and watchdog become scheduled tasks."""
+    Startup folder (no admin); sender and watchdog become scheduled tasks.
+
+    Safe to re-run: existing tasks are deleted first. `schtasks /Create /F`
+    overwrites a task only if this account is allowed to — it fails with
+    "Access is denied" against a task an *administrator* created (e.g. an
+    earlier run of Setup via "Run as administrator"). Deleting first turns the
+    overwrite into a plain create, so re-onboarding works without manual
+    cleanup. It also clears the legacy capture task from older builds.
+    """
+    _delete_tasks()
     create_capture_autostart(exe_path)
     _register_sender(exe_path)
     _register_watchdog(exe_path)
 
 
-def deregister_all_tasks() -> None:
+def _delete_tasks() -> None:
+    """Best-effort removal of every Luminque task. Silent by design: a missing
+    task is success, and a task this account cannot delete is reported later,
+    with remediation, by the create that follows."""
     for name in list(TASK_NAMES.values()) + [LEGACY_CAPTURE_TASK_NAME]:
         subprocess.run(
             ["schtasks", "/Delete", "/F", "/TN", name],
             capture_output=True,
         )
+
+
+def deregister_all_tasks() -> None:
+    _delete_tasks()
     remove_capture_autostart()
 
 
@@ -142,10 +158,23 @@ def _run(cmd: list[str]) -> None:
         # (x or "") so a missing stream can never turn the real schtasks
         # error into an AttributeError that masks it.
         task = cmd[cmd.index("/TN") + 1] if "/TN" in cmd else " ".join(cmd)
-        raise RuntimeError(
-            f"schtasks failed creating task '{task}':\n"
-            f"{(result.stderr or '').strip() or (result.stdout or '').strip()}"
-        )
+        detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+        hint = ""
+        if "access is denied" in detail.lower():
+            # The tasks are deleted before creating, so reaching here means the
+            # delete was refused too — i.e. the existing task belongs to another
+            # account. Tell the user how to clear it instead of dead-ending.
+            hint = (
+                f"\n\nA scheduled task named '{task}' already exists and belongs to "
+                "another account — usually an earlier setup run started with "
+                "'Run as administrator'. Windows will not let this account "
+                "replace it.\n\n"
+                "To fix: open Command Prompt as administrator and run\n"
+                f"    schtasks /Delete /F /TN {task}\n"
+                "then run this setup again normally (a plain double-click — do "
+                "NOT use 'Run as administrator')."
+            )
+        raise RuntimeError(f"schtasks failed creating task '{task}':\n{detail}{hint}")
 
 
 def _register_sender(exe_path: str) -> None:

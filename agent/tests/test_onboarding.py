@@ -194,6 +194,51 @@ def test_register_all_tasks_uses_startup_for_capture_not_onlogon(monkeypatch, tm
     )
 
 
+def test_register_all_tasks_deletes_existing_tasks_first(monkeypatch, tmp_path):
+    """Re-onboarding must be safe. /Create /F cannot overwrite a task created
+    by another account (an earlier elevated run) — deleting first turns the
+    overwrite into a plain create. The legacy capture task is cleared too."""
+    from luminque.onboarding import scheduler
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    ok = MagicMock(returncode=0, stdout="wholesome\\mvsid", stderr="")
+    calls = []
+
+    def fake_run(cmd, *a, **k):
+        calls.append(cmd)
+        if cmd and cmd[0] == "powershell":
+            open(scheduler.capture_shortcut_path(), "w").close()
+        return ok
+
+    with patch("luminque.onboarding.scheduler.subprocess.run", side_effect=fake_run):
+        scheduler.register_all_tasks(r"C:\Programs\Luminque\luminque.exe")
+
+    deletes = [c for c in calls if c[:2] == ["schtasks", "/Delete"]]
+    deleted = {c[c.index("/TN") + 1] for c in deletes}
+    assert deleted == {"LumniqueSender", "LumniqueWatchdog", "LumniqueCapture"}
+
+    # Every delete must precede every create, or the overwrite problem remains.
+    first_create = next(i for i, c in enumerate(calls) if c[:2] == ["schtasks", "/Create"])
+    last_delete = max(i for i, c in enumerate(calls) if c[:2] == ["schtasks", "/Delete"])
+    assert last_delete < first_create
+
+
+def test_access_denied_error_explains_how_to_recover():
+    """A bare 'Access is denied' dead-ends the user. The message must name the
+    cause (task owned by another account) and the exact remediation."""
+    from luminque.onboarding.scheduler import _run
+
+    denied = MagicMock(returncode=1, stdout="", stderr="ERROR: Access is denied.")
+    with patch("luminque.onboarding.scheduler.subprocess.run", return_value=denied):
+        try:
+            _run(["schtasks", "/Create", "/F", "/TN", "LumniqueSender"])
+            assert False, "expected RuntimeError"
+        except RuntimeError as e:
+            msg = str(e)
+            assert "another account" in msg
+            assert "schtasks /Delete /F /TN LumniqueSender" in msg
+
+
 def test_shortcut_creation_fails_loudly_when_file_not_written(monkeypatch, tmp_path):
     """PowerShell can exit 0 while the COM Save() silently failed (security
     software blocking Startup-folder writes is the common cause). Trusting the
