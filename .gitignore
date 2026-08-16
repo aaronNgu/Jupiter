@@ -1,6 +1,17 @@
+# Local frame mirror (scripts/pull-screenshots.sh) — hundreds of MB of PNGs.
 screenshots/
+
+# Discovery pipeline outputs. Notes are re-derivable (at vision cost); runs are
+# per-analysis artifacts. `runss` is an old typo'd output dir, kept ignored so
+# it never lands in a commit.
 discovery/notes/
 discovery/runs
 discovery/runss
+
+# Archived prototype from the previous iteration. It is its own git repo
+# (github.com/luminiq-hq/sop-discovery) checked out here — committing it would
+# embed a broken gitlink. Clone it separately if you need it.
+sop-discovery.nosync/
+
 __pycache__/
 .DS_Store
