@@ -1,0 +1,6 @@
+screenshots/
+discovery/notes/
+discovery/runs
+discovery/runss
+__pycache__/
+.DS_Store
