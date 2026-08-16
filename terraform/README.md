@@ -56,6 +56,24 @@ build → push `:sha` + `:latest` → `ecs update-service --force-new-deployment
 CI authenticates via GitHub OIDC assuming `luminque-ci-deploy` (an output;
 must match `AWS_ROLE_ARN` in the workflow). No AWS keys exist in GitHub.
 
+## Creating a tenant
+
+RDS is private, so tenant rows are created by running the ingestion CLI as a
+one-off Fargate task (same image, command override). Wrapped in a script:
+
+```sh
+./scripts/create-tenant.sh "Acme Corp"
+# tenant_id:        <uuid>
+# enrollment_token: <token>
+```
+
+It resolves everything from Terraform outputs and the live service, waits for
+the task, and reads the result from CloudWatch (`--dry-run` prints what it
+would run). Takes ~a minute. The token also lands in the CloudWatch log
+stream (30-day retention) — acceptable for this credential; rotate by
+updating the tenant row if needed. If tenant creation becomes frequent,
+that's the signal to build a proper admin API on the read side.
+
 ## Day-2 notes
 
 - **Task-definition changes** (env vars, CPU/memory): the service has
