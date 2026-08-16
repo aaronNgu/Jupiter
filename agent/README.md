@@ -33,6 +33,9 @@ uv run luminque --send
 
 # Run one watchdog check
 uv run luminque --watchdog
+
+# Uninstall: stop processes, delete tasks, remove autostart
+uv run luminque --stop
 ```
 
 ## Tests
@@ -51,7 +54,8 @@ Must be run on a Windows machine or the GitHub Actions Windows runner:
 
 ```bash
 uv run pyinstaller luminque.spec
-# Output: dist/luminque.exe
+# Output: dist/luminque/ — an --onedir bundle (luminque.exe + _internal/).
+# The exe cannot run outside that folder; ship the folder whole.
 ```
 
 The GitHub Actions `build.yml` workflow handles this automatically on push to `main` and version tags. The artifact is uploaded as `luminque-windows-exe`.
@@ -60,11 +64,12 @@ The GitHub Actions `build.yml` workflow handles this automatically on push to `m
 
 ```
 luminque/
-  main.py          # entry point — routes --capture/--send/--watchdog/--onboard
-  capture/         # wraps openadapt-capture (action-gated screenshots)
-  sender/          # reads DB, gzips, POSTs to ingest endpoint
+  main.py          # entry point — routes --capture/--send/--watchdog/--onboard/--stop
+  captureV2/       # native screenshot capturer (activity-gated + change dedupe)
+  sender/          # reads DB, POSTs frames to the ingest endpoint
   watchdog/        # process health checks, restarts capture if needed
-  onboarding/      # tkinter consent UI + Task Scheduler registration
+  onboarding/      # tkinter consent UI + autostart registration
+  stop/            # uninstall: kill processes, delete tasks, remove autostart
 tests/
 .github/workflows/
   test.yml         # pytest on mac + windows

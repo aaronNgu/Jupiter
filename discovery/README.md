@@ -54,12 +54,17 @@ call to regenerate, losing `notes/` means re-paying the vision pass.
 aws sso login --profile kangaroo
 ```
 
-Two account quirks worth knowing (see the AWS notes in the design doc):
-Bedrock capacity on this account lives in **us-east-2**, which is the default
-here — us-east-1 quotas are zero and surface as
-`ThrottlingException: Too many tokens per day` on the first call. And the
-current model generation is gated; Opus 4.5/4.6 and Haiku 4.5 work via `us.*`
-inference profiles.
+Two account quirks worth knowing: Bedrock capacity on this account lives in
+**us-east-2**, which is the default here — us-east-1 quotas are zero and
+surface as `ThrottlingException: Too many tokens per day` on the first call.
+And the current model generation is gated; Opus 4.5/4.6 and Haiku 4.5 work via
+`us.*` inference profiles.
+
+Both are account-level limits with no fix in this repo, and the throttling one
+looks transient but is permanent. Before spending time on either, read the
+Bedrock section of the [root `CLAUDE.md`](../CLAUDE.md) — it records which
+regions have capacity, which model generations are blocked, and the quota
+increase AWS already denied.
 
 Check access before a long run:
 

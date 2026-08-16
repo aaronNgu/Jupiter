@@ -4,7 +4,7 @@
 
 `luminque-ops` is a background agent for Windows that records GUI interactions
 for retrospective business process analysis. It is distributed as a **single
-signed `.exe`** built with PyInstaller. The same binary runs in four modes,
+signed `.exe`** built with PyInstaller. The same binary runs in five modes,
 selected by a CLI flag.
 
 The agent is not a real-time monitoring tool. Capture is local; a separate
@@ -33,9 +33,9 @@ uv run luminque --send
 uv run luminque --watchdog
 ```
 
-## Architecture — the four modes
+## Architecture — the five modes
 
-All four modes are invoked via the same entry point (`luminque/main.py`).
+All five modes are invoked via the same entry point (`luminque/main.py`).
 Mode selection is by the first CLI argument. No argparse — intentionally simple
 to avoid PyInstaller import issues.
 
@@ -45,6 +45,7 @@ luminque.exe --onboard                  → onboarding
 luminque.exe --capture                  → long-running capture process
 luminque.exe --send                     → one-shot send cycle
 luminque.exe --watchdog                 → one-shot watchdog check
+luminque.exe --stop                     → uninstall: stop everything, remove autostart
 ```
 
 ### --capture (luminque/captureV2/)
@@ -79,11 +80,10 @@ Key design decisions (see `luminque-capture-p3.md`):
   blobs when the sender is failing — intended tradeoff (disk bound > at-least-
   once delivery).
 
-The legacy openadapt-capture wrapper remains at `luminque/capture/` until
-captureV2 passes Windows VM validation (p3 §10 step 6). It is no longer
-routed from main.py and `openadapt-capture` is no longer a dependency, so it
-cannot run from a fresh checkout — rollback requires reverting both main.py
-and pyproject.toml.
+The legacy openadapt-capture wrapper (`luminque/capture/`) has been deleted
+and `openadapt-capture` is no longer a dependency. `luminque-capture-p1.md`
+and `-p2.md` describe that superseded design; `-p3.md` is current. Rollback
+would mean restoring the package from git history plus the dependency.
 
 ### --send (luminque/sender/)
 
@@ -125,6 +125,17 @@ no scheduled task to `schtasks /Run` (see `--onboard`). Safe from the
 watchdog specifically: it is launched by the Task Scheduler service, not from
 inside onboarding's kill-on-close Job Object, so the detached child survives.
 Also performs a daily midnight restart (00:00–00:05 window) to clear memory drift.
+
+### --stop (luminque/stop/)
+
+Uninstall/recovery counterpart to `--onboard`: deletes the sender and watchdog
+scheduled tasks, removes the capture Startup shortcut, and kills any running
+capture/sender/watchdog processes (never itself). Deliberately tolerant of
+things already being gone, so it is safe to run on a partially-onboarded
+machine. `TASK_NAMES` still lists the retired `LumniqueCapture` task so
+machines upgraded from a build that registered it get cleaned up too.
+`agent/scripts/stop_luminque.ps1` is the PowerShell equivalent for machines
+where the exe itself is the problem.
 
 ### --onboard (luminque/onboarding/)
 
