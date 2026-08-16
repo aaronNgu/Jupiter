@@ -184,29 +184,43 @@ No admin/UAC elevation required at any point.
 
 ## Design docs
 
-Full technical design documents live at:
+Full technical design documents live in `../design-docs/` (repo root). They
+contain exact function signatures, SQL queries, schtasks commands, and
+edge-case handling — read the relevant one before implementing a submodule.
+
+Agent:
 
 ```
-/Users/aaron_other/Documents/Luminque.nosync/design-docs/
-  luminque-capture-p1.md        (Superseded by p3) Capture mode:
-                                openadapt-capture integration, action-gated
-                                screenshots, memory management, data schema.
-  luminque-capture-p3.md        CaptureV2: native screenshot capturer —
-                                activity-gated sampling, change dedupe,
-                                SQLite schema compatibility, sender contract.
-  luminque-sender-p1.md         Sender mode: payload schema, cursor tracking,
-                                gzip transport, credentials, retention cap,
-                                heartbeat, module structure.
-  luminque-deployment-p1.md     Deployment: onboarding UI, Task Scheduler
-                                registration, watchdog logic, PyInstaller spec,
-                                GitHub Actions pipeline, code signing,
-                                directory layout on user machines, uninstall.
-  luminque-deployment-p2.md     (Future) Phase 2 deployment considerations.
-  luminque-sender-p2.md         (Future) PII scrubbing, spaCy integration.
+luminque-capture-p1.md            (Superseded by p3) Capture mode:
+                                  openadapt-capture integration, action-gated
+                                  screenshots, memory management, data schema.
+luminque-capture-p2.md            (Superseded by p3) Capture iteration.
+luminque-capture-p3.md            CaptureV2: native screenshot capturer —
+                                  activity-gated sampling, change dedupe,
+                                  SQLite schema compatibility, sender contract.
+luminque-sender-p1.md             Sender mode: payload schema, cursor tracking,
+                                  gzip transport, credentials, retention cap,
+                                  heartbeat, module structure.
+luminque-sender-p2.md             (Future) PII scrubbing, spaCy integration.
+luminque-onboarding-watchdog-p1.md  Onboarding consent flow and watchdog logic.
+luminque-packaging-p1.md          PyInstaller onedir build, the 7-Zip SFX
+                                  installer, artifact layout.
+luminque-deployment-p1.md         Deployment: onboarding UI, Task Scheduler
+                                  registration, watchdog logic, PyInstaller
+                                  spec, GitHub Actions pipeline, code signing,
+                                  on-machine layout, uninstall.
+luminque-deployment-p2.md         (Future) Phase 2 deployment considerations.
 ```
 
-Read these before implementing any submodule. The design docs contain exact
-function signatures, SQL queries, schtasks commands, and edge-case handling.
+Rest of the system (the agent is one of four components — see the root
+`CLAUDE.md` for how they fit together and what is actually deployed):
+
+```
+luminque-ingestion-p1.md          The service the sender POSTs to: v1 contract,
+                                  enrollment, dedupe, storage layout.
+luminque-infra-p1.md              AWS topology behind that service.
+luminque-discovery-p1.md          What happens to frames after upload.
+```
 
 ## Windows-specific notes
 
